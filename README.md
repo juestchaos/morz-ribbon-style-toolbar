@@ -21,9 +21,10 @@ Morz 编辑器的 Ribbon 风格格式工具栏插件。
 
 ## 安装
 
-1. 把整个目录放到 `%APPDATA%\com.morz.editor\plugins\morz-ribbon\`
-2. 打开 Morz → 设置 → 第三方插件 → 已安装 → **刷新** → 启用「Ribbon 工具栏」
-3. 如目录不对：设置 → 第三方插件 → 「打开目录」，把本文件夹复制进去后刷新
+**插件市场**：Morz → 设置 → 第三方插件 → 市场 → 搜索「Ribbon 工具栏」。
+
+**手动**：把 `manifest.json`、`main.js`、`icon.svg` 放进 `%APPDATA%\com.morz.editor\plugins\morz-ribbon\`，再到设置 → 第三方插件 → **刷新** → 启用。
+目录不对时：设置 → 第三方插件 → 「打开目录」，把本文件夹复制进去后刷新。
 
 ## 尺寸自适应
 
@@ -92,6 +93,17 @@ Morz 编辑器的 Ribbon 风格格式工具栏插件。
 
 - **0.1.1** 首次公开发布。宽度按父容器测量，修复右侧面板打开时工具栏被覆盖；窄屏整组折叠为「组名 ▾」，保持两行结构与高度；重复挂载幂等，不叠画
 - **0.1.0** 25 项功能映射、6 分组、两处弹出菜单
+
+## 发布信息
+
+| 项 | 值 |
+|---|---|
+| 仓库 | https://github.com/juestchaos/morz-ribbon-style-toolbar |
+| 插件 id | `morz-ribbon` |
+| 版本 / tag | `0.1.1` / `v0.1.1` |
+| 最低客户端 | `0.3.0`（实测 0.3.3） |
+| 入口 | `main.js`，导出 `activate` / `deactivate` |
+| 许可 | MIT |
 
 ## 作者
 
