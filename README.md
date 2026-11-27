@@ -33,7 +33,9 @@ Morz 编辑器的 Ribbon 风格格式工具栏插件。
 | 挂载位置 | `ctx.ui.floatingHost`（回退 `.editor-pane`），`position:sticky` 贴在编辑区顶部；切换文档时若宿主换了面板会跟随 |
 | 重复挂载 | 幂等：挂载前清掉历史 `.mzr-ribbon` 与旧样式，热重载不会叠出两条 |
 | 折叠 | 右下角箭头或命令面板「Ribbon：折叠 / 展开」，41px 与原生栏等高；空间不足时该行横向滚动，折叠箭头固定不滚动 |
-| 生效范围 | 仅 Markdown 文档视图。判据为 `ctx.views.active().kind === "editor"` 且路径以 `.md` / `.markdown` / `.mdx` 结尾；空白页、附件、插件视图不显示 Ribbon，原生栏同时恢复 |
+| 生效范围 | 仅 Markdown 文档视图。三重判据：`ctx.views.active().kind === "editor"`、编辑器 DOM 仍在页面上且有尺寸、路径以 `.md` / `.markdown` / `.mdx` 结尾；空白页、附件、插件视图（如日历）不显示 Ribbon，原生栏同时恢复 |
+| 视图切换 | `ctx.views.onChange` 与 `ctx.active.onPathChange` 立即重算；另有 400ms 低频心跳比对判定结果兜底，只在结果变化时动 DOM |
+| 卸载 | `deactivate` 与 `ctx.onDispose` 都走同一条幂等清理：移除 Ribbon 节点、弹出的面板与注入样式，并还原原生格式栏。安全模式 / 崩溃恢复后不会留下浮在所有视图上的幽灵工具栏 |
 | 隐藏原生栏 | 默认开启，整槽隐藏 `.toolbar-top-slot`（41px 一并回收，不留空白）；设置里可关掉改成双栏并存 |
 | 弹层 | 标题▾（7 项）、格式▾（9 项）、表情（46 个）、整组折叠（按组动态）均为插件自绘，`position:fixed` 自动避让边界 |
 
@@ -58,6 +60,7 @@ Morz 编辑器的 Ribbon 风格格式工具栏插件。
 | 权限 | 用途 |
 |---|---|
 | `workspace` | 挂载 Ribbon 到编辑区，隐藏原生格式栏 |
+| `views` | 读取 `ctx.views.active()` 判断当前是不是文档视图 |
 | `editor:insert` | `runCommand` 派发全部格式命令 |
 | `editor:direct` | 读取选区与光标状态，显示按钮激活态 |
 | `settings` | 保存「隐藏原生格式栏」等开关 |
@@ -65,7 +68,8 @@ Morz 编辑器的 Ribbon 风格格式工具栏插件。
 
 ## 更新记录
 
-- **0.1.2** 只在 Markdown 文档视图生效：按 `ctx.views.active().kind` 与文档扩展名双重判断，空白页、附件（图片/PDF）、插件视图不再出现 Ribbon，同时把原生格式栏还给这些视图
+- **0.1.3** 修复「插件视图（日历等）顶上仍挂着 Ribbon」：补 `views` 权限（缺它时 `ctx.views` 取不到，判定退化成只看路径，而路径在插件视图下仍是上一个 .md），并加「编辑器 DOM 是否还在页面上且有尺寸」这一硬判据与 400ms 心跳兜底；卸载路径补上节点与样式的清理，安全模式后不再留幽灵工具栏
+- **0.1.2** 只在 Markdown 文档视图生效（已撤销发布）：按 `ctx.views.active().kind` 与文档扩展名判断
 - **0.1.1** 首次公开发布。宽度按父容器测量，修复右侧面板打开时工具栏被覆盖；窄屏整组折叠为「组名 ▾」，保持两行结构与高度；重复挂载幂等，不叠画
 - **0.1.0** 25 项功能映射、6 分组、两处弹出菜单
 
@@ -75,8 +79,8 @@ Morz 编辑器的 Ribbon 风格格式工具栏插件。
 |---|---|
 | 仓库 | https://github.com/juestchaos/morz-ribbon-style-toolbar |
 | 插件 id | `morz-ribbon` |
-| 版本 / tag | `0.1.2` / `v0.1.2` |
-| 最低客户端 | `0.3.0`（实测 0.3.3） |
+| 版本 / tag | `0.1.3` / `v0.1.3` |
+| 最低客户端 | `0.3.0`（实测 0.3.4） |
 | 入口 | `main.js`，导出 `activate` / `deactivate` |
 | 许可 | MIT |
 

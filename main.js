@@ -1,4 +1,4 @@
-/* morz-ribbon v0.1.2 — 把 Morz 单行格式工具栏重排为分组 Ribbon
+/* morz-ribbon v0.1.3 — 把 Morz 单行格式工具栏重排为分组 Ribbon
  * 功能范围与原生 .toolbar-top 的 25 个按钮一一对应，不新增、不删减。
  * 依赖公开 SDK：ctx.editor.runCommand / ctx.active / ctx.editor.view / ctx.vault.writeBlob
  */
@@ -141,18 +141,40 @@ function view() {
 }
 
 /* ---------------- 作用域：只在 Markdown 文档视图生效 ----------------
- * ctx.views.active() 的 kind：editor / blank / attachment / plugin。
- * 只有 kind 为 editor 且当前路径是 .md / .markdown 时才挂工具栏，
- * 空白页、附件（图片/PDF）、插件视图一律不显示。 */
+ * 三道判据，任一不满足就隐藏：
+ *  1) ctx.views.active() 的 kind 必须是 editor（其余为 blank / attachment / plugin）。
+ *     插件视图的 id 带「插件id:」前缀，也一并排除。
+ *  2) CodeMirror 视图必须真的还在页面上：插件视图会把它摘掉或 display:none，
+ *     这条是硬信号——0.1.2 只查了 views.active，少了 views 权限时它取不到，
+ *     退化成只看路径，而路径在插件视图下仍是上一个 .md，于是工具栏盖到日历上。
+ *  3) 当前路径必须是 .md / .markdown / .mdx。 */
 var MD_RE = /\.(md|markdown|mdx)$/i;
+var scopeState = null;
+
+function editorLive() {
+  var v = view();
+  if (!v || !v.dom) return null;          /* 编辑器尚未就绪：交给 1)、3) 判断 */
+  if (!v.dom.isConnected) return false;   /* 已被摘出 DOM */
+  /* 用布局尺寸而非 offsetParent：position:fixed 的容器 offsetParent 恒为 null，
+     会误判成「隐藏」。display:none 的祖先让 rect 归零，同样能识别出来。 */
+  var r = v.dom.getBoundingClientRect();
+  return r.width > 2 && r.height > 2;
+}
 
 function isMdView() {
+  var kind = null, id = null;
   try {
-    if (ctx.views && ctx.views.active) {
+    if (ctx.views && typeof ctx.views.active === 'function') {
       var v = ctx.views.active();
-      if (v && v.kind && v.kind !== 'editor') return false;
+      if (v) { kind = v.kind; id = v.id; }
     }
-  } catch (e) { /* 旧版本 SDK 无 ctx.views，退回按路径判断 */ }
+  } catch (e) { /* 无 views 权限或旧 SDK，交给后面的判断 */ }
+  if (kind && kind !== 'editor') return false;
+  if (id && String(id).indexOf(':') >= 0) return false;
+
+  var live = editorLive();
+  if (live === false) return false;
+
   var p = null;
   try { p = ctx.active.path(); } catch (e) { p = null; }
   return !!p && MD_RE.test(p);
@@ -162,6 +184,7 @@ function isMdView() {
 function applyScope() {
   if (!root) return;
   var md = isMdView();
+  scopeState = md;
   root.classList.toggle('is-off', !md);
   if (!md) {
     closePop();
@@ -173,6 +196,32 @@ function applyScope() {
   if (!root.getClientRects().length) document.body.classList.remove('mzr-hide-native');
   lastW = -1;
   fit(true);
+}
+
+/* 视图切换时 SDK 未必每次都派发事件（插件视图与文档 tab 的路径相同），
+   用低频心跳比对判定结果兜底：只在结果变化或宿主搬家时才动 DOM。 */
+function startScopeWatch() {
+  var tick = function () {
+    if (!root) return;
+    if (isMdView() !== scopeState) {
+      reanchor();
+      applyScope();
+      scheduleSync();
+      return;
+    }
+    if (!root.classList.contains('is-off')) {
+      var host = pickHost();
+      if (host && root.parentNode !== host) reanchor();
+    }
+  };
+  try {
+    if (ctx.timers && typeof ctx.timers.setInterval === 'function') {
+      ctx.timers.setInterval(tick, 400);
+      return;
+    }
+  } catch (e) { /* 旧 SDK 无 timers */ }
+  var id = setInterval(tick, 400);
+  ctx.onDispose(function () { clearInterval(id); });
 }
 
 function safe(fn) {
@@ -852,20 +901,39 @@ module.exports = {
 
     window.addEventListener('resize', onResize);
     ctx.onDispose(function () { window.removeEventListener('resize', onResize); });
+
+    /* 卸载必须把节点一起带走。安全模式 / 崩溃恢复会直接停掉插件而不保证走 deactivate，
+       留下的 DOM 就会浮在所有视图上（0.1.2 出现的「日历视图顶上还挂着 Ribbon」）。 */
+    ctx.onDispose(cleanup);
+
+    startScopeWatch();
   },
 
   deactivate() {
-    if (mo) { mo.disconnect(); mo = null; }
-    lastW = -1;
-    if (root) { root.removeEventListener('click', onRootClick); root.removeEventListener('mousedown', onRootDown); }
-    /* 兜底：连同历史遗留的重复实例一起清掉 */
-    var all = document.querySelectorAll('.mzr-ribbon');
-    for (var i = 0; i < all.length; i++) all[i].remove();
-    root = null;
-    grpEls = [];
-    foldList = [];
-    if (pop) { pop.remove(); pop = null; }
-    popOwner = null;
-    document.body.classList.remove('mzr-hide-native');
+    cleanup();
   }
 };
+
+/* 幂等清理：DOM、样式、弹层、原生栏还原，全部恢复到挂载前 */
+function cleanup() {
+  if (mo) { try { mo.disconnect(); } catch (e) { /* ignore */ } mo = null; }
+  lastW = -1;
+  scopeState = null;
+  if (root) {
+    try {
+      root.removeEventListener('click', onRootClick);
+      root.removeEventListener('mousedown', onRootDown);
+    } catch (e) { /* ignore */ }
+  }
+  /* 兜底：连同历史遗留的重复实例一起清掉 */
+  var all = document.querySelectorAll('.mzr-ribbon');
+  for (var i = 0; i < all.length; i++) all[i].remove();
+  root = null;
+  grpEls = [];
+  foldList = [];
+  if (pop) { pop.remove(); pop = null; }
+  popOwner = null;
+  document.body.classList.remove('mzr-hide-native');
+  var st = document.querySelectorAll('style[data-mzr]');
+  for (var j = 0; j < st.length; j++) st[j].remove();
+}
