@@ -1,4 +1,4 @@
-/* morz-ribbon v0.1.1 — 把 Morz 单行格式工具栏重排为分组 Ribbon
+/* morz-ribbon v0.1.2 — 把 Morz 单行格式工具栏重排为分组 Ribbon
  * 功能范围与原生 .toolbar-top 的 25 个按钮一一对应，不新增、不删减。
  * 依赖公开 SDK：ctx.editor.runCommand / ctx.active / ctx.editor.view / ctx.vault.writeBlob
  */
@@ -140,6 +140,41 @@ function view() {
   try { return ctx.editor.view(); } catch (e) { return null; }
 }
 
+/* ---------------- 作用域：只在 Markdown 文档视图生效 ----------------
+ * ctx.views.active() 的 kind：editor / blank / attachment / plugin。
+ * 只有 kind 为 editor 且当前路径是 .md / .markdown 时才挂工具栏，
+ * 空白页、附件（图片/PDF）、插件视图一律不显示。 */
+var MD_RE = /\.(md|markdown|mdx)$/i;
+
+function isMdView() {
+  try {
+    if (ctx.views && ctx.views.active) {
+      var v = ctx.views.active();
+      if (v && v.kind && v.kind !== 'editor') return false;
+    }
+  } catch (e) { /* 旧版本 SDK 无 ctx.views，退回按路径判断 */ }
+  var p = null;
+  try { p = ctx.active.path(); } catch (e) { p = null; }
+  return !!p && MD_RE.test(p);
+}
+
+/* 按当前视图切换 Ribbon 与原生栏的显示状态 */
+function applyScope() {
+  if (!root) return;
+  var md = isMdView();
+  root.classList.toggle('is-off', !md);
+  if (!md) {
+    closePop();
+    document.body.classList.remove('mzr-hide-native');
+    return;
+  }
+  document.body.classList.toggle('mzr-hide-native', !!cfg.hideNative);
+  /* 兜底：若 Ribbon 恰好被挂进被隐藏的容器，撤销隐藏，避免把自己藏掉 */
+  if (!root.getClientRects().length) document.body.classList.remove('mzr-hide-native');
+  lastW = -1;
+  fit(true);
+}
+
 function safe(fn) {
   try { return fn(); } catch (e) {
     if (ctx) ctx.ui.notice('操作失败：' + (e && e.message ? e.message : e), { kind: 'error' });
@@ -152,6 +187,8 @@ function buildCSS() {
   return [
     '.mzr-ribbon{box-sizing:border-box;position:sticky;top:0;z-index:30;display:flex;align-items:stretch;',
     '--bw:30px;--bh:28px;--rh:28px;--isz:16px;--fs:12px;--lfs:10px;',
+    /* 非 Markdown 视图：整体移出布局，不占高度、不碰原生栏 */
+    '.mzr-ribbon.is-off{display:none!important}',
     'padding:5px 32px 0 8px;background:var(--ui-bg,var(--bg-color,#fff));',
     'border-bottom:1px solid var(--ui-border,rgba(128,128,128,.16));',
     /* 三道保险：宽度严格等于父容器、不参与 flex 撑宽、溢出直接裁掉。
@@ -638,7 +675,7 @@ function applyFold(folded) {
 }
 
 function fit(force) {
-  if (!root) return;
+  if (!root || root.classList.contains('is-off')) return;
   /* 关键修正：量父容器的可用宽度，不量自己。
      ribbon 若量自身 clientWidth，一旦溢出，量到的就是溢出后的宽度，
      于是 fit 认为「够宽」不再收敛 —— 这正是工具栏画到右侧面板上的原因。 */
@@ -747,11 +784,7 @@ module.exports = {
 
     root.addEventListener('click', onRootClick);
     root.addEventListener('mousedown', onRootDown);
-    if (cfg.hideNative) {
-      document.body.classList.add('mzr-hide-native');
-      /* 兜底：若 Ribbon 恰好被挂进被隐藏的容器，撤销隐藏，避免把自己藏掉 */
-      if (!root.getClientRects().length) document.body.classList.remove('mzr-hide-native');
-    }
+    applyScope();
     syncState();
 
     try {
@@ -759,11 +792,8 @@ module.exports = {
         ctx.settings.get().then(function (s) {
           cfg.density = s && s.density === 'compact' ? 'compact' : 'comfortable';
           if (root) root.classList.toggle('compact', cfg.density === 'compact');
-          fit(true);
-          if (s && typeof s.hideNative === 'boolean') {
-            cfg.hideNative = s.hideNative;
-            document.body.classList.toggle('mzr-hide-native', cfg.hideNative);
-          }
+          if (s && typeof s.hideNative === 'boolean') cfg.hideNative = s.hideNative;
+          applyScope();
         });
       });
     } catch (e) { /* ignore */ }
@@ -784,7 +814,7 @@ module.exports = {
         name: 'Ribbon：显示 / 隐藏原生格式栏',
         run: function () {
           cfg.hideNative = !cfg.hideNative;
-          document.body.classList.toggle('mzr-hide-native', cfg.hideNative);
+          applyScope();
           ctx.settings.set({ hideNative: cfg.hideNative });
           ctx.ui.notice(cfg.hideNative ? '已隐藏原生格式栏' : '已恢复原生格式栏');
         }
@@ -793,7 +823,14 @@ module.exports = {
 
     try {
       ctx.active.onChange(scheduleSync);
-      ctx.active.onPathChange(function () { reanchor(); scheduleSync(); });
+      ctx.active.onPathChange(function () { reanchor(); applyScope(); scheduleSync(); });
+    } catch (e) { /* ignore */ }
+
+    /* 主区域视图切换：Markdown 文档 / 空白页 / 附件 / 插件视图，决定 Ribbon 与原生栏是否显示 */
+    try {
+      if (ctx.views && ctx.views.onChange) {
+        ctx.views.onChange(function () { reanchor(); applyScope(); scheduleSync(); });
+      }
     } catch (e) { /* ignore */ }
 
     document.addEventListener('mousedown', onDocDown);

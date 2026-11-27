@@ -1,7 +1,7 @@
 {
   "id": "morz-ribbon",
   "name": "Ribbon 工具栏",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "把单行格式栏重排为两行分组 Ribbon，启用即隐藏原生格式栏，窄屏自动折叠",
   "author": "PKMer",
   "sdk": 1,
