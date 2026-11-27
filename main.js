@@ -1,4 +1,4 @@
-/* morz-ribbon v0.1.3 — 把 Morz 单行格式工具栏重排为分组 Ribbon
+/* morz-ribbon v0.1.4 — 把 Morz 单行格式工具栏重排为分组 Ribbon
  * 功能范围与原生 .toolbar-top 的 25 个按钮一一对应，不新增、不删减。
  * 依赖公开 SDK：ctx.editor.runCommand / ctx.active / ctx.editor.view / ctx.vault.writeBlob
  */
@@ -304,20 +304,26 @@ function buildCSS() {
     '.mzr-grp.mzr-folded .mzr-items{display:none}',
     '.mzr-grp.mzr-folded .mzr-fold{display:flex}',
     '.mzr-grp.mzr-folded .mzr-label{display:none}',
-    '.mzr-ribbon.collapsed .mzr-fold{height:var(--rh);margin:0}',
 
-    '.mzr-ribbon.collapsed{height:41px;padding:7px 32px 6px 8px}',
-    '.mzr-ribbon.collapsed .mzr-scroll{overflow-x:auto;overflow-y:hidden}',
+    /* 收起态（Office 式折叠）：只留一条 28px 的组名条。
+       每组压成一个 pill，点开即弹出本组全部功能；右侧箭头随时展开。 */
+    '.mzr-ribbon.collapsed{height:auto;padding:3px 34px 3px 6px}',
+    '.mzr-ribbon.collapsed .mzr-scroll{overflow-x:auto;overflow-y:hidden;align-items:center}',
     '.mzr-ribbon.collapsed .mzr-scroll::-webkit-scrollbar{height:0;width:0}',
     '.mzr-ribbon.collapsed .mzr-label{display:none}',
-    '.mzr-ribbon.collapsed .mzr-items{display:flex;gap:1px}',
-    '.mzr-ribbon.collapsed .mzr-grp{padding:0 5px}',
-    '.mzr-ribbon.collapsed .mzr-grp+.mzr-grp::before{top:0;bottom:0}',
-    '.mzr-ribbon.collapsed .mzr-btn.mzr-off{display:none}',
+    '.mzr-ribbon.collapsed .mzr-items{display:none}',
+    '.mzr-ribbon.collapsed .mzr-grp{padding:0 3px}',
+    '.mzr-ribbon.collapsed .mzr-grp+.mzr-grp::before{top:5px;bottom:5px}',
+    '.mzr-ribbon.collapsed .mzr-fold{display:flex;width:auto;min-width:34px;height:22px;',
+    'padding:0 7px;margin:0;font-size:11px;gap:3px;opacity:.9}',
 
-    '.mzr-toggle{position:absolute;right:6px;bottom:2px;width:20px;height:14px;border:0;',
-    'background:transparent;color:var(--ui-text,#333);opacity:.4;cursor:pointer;border-radius:3px}',
-    '.mzr-toggle:hover{opacity:.9;background:var(--ui-hover,rgba(128,128,128,.12))}',
+    /* 展开 / 收起按钮：常驻在右上（收起态）或右下（展开态），不再用几乎看不见的透明小三角 */
+    '.mzr-toggle{position:absolute;right:5px;bottom:3px;z-index:6;width:24px;height:18px;border:0;',
+    'border-radius:5px;display:flex;align-items:center;justify-content:center;',
+    'background:var(--ui-hover,rgba(128,128,128,.10));color:var(--ui-text,#333);opacity:.62;cursor:pointer;',
+    'transition:opacity .12s,background .12s}',
+    '.mzr-toggle:hover{opacity:1;background:var(--ui-active,rgba(128,128,128,.2))}',
+    '.mzr-ribbon.collapsed .mzr-toggle{bottom:auto;top:4px;opacity:.85}',
     '.mzr-ribbon.collapsed .mzr-toggle svg{transform:rotate(180deg)}',
 
     /* 窄窗口不再换行/压扁：多余的按钮收进「更多」，高度保持不变 */
@@ -370,8 +376,34 @@ function buildHTML() {
     out.push('</div>');
   }
   out.push('</div>');
-  out.push('<button type="button" class="mzr-toggle" data-toggle="collapse" title="折叠 / 展开工具栏">' + svg(cfg.collapsed ? 'chevron' : 'chevron', 10) + '</button>');
+  out.push('<button type="button" class="mzr-toggle" data-toggle="collapse" aria-label="' +
+    (cfg.collapsed ? '展开工具栏' : '收起工具栏') + '" title="' +
+    (cfg.collapsed ? '展开工具栏' : '收起工具栏（只留组名条）') + '">' + svg('chevron', 11) + '</button>');
   return out.join('');
+}
+
+/* 收起态：全部组压成组名 pill */
+function allFolded() {
+  var o = {};
+  for (var i = 0; i < GROUPS.length; i++) o[GROUPS[i].name] = 1;
+  return o;
+}
+
+/* 展开 / 收起：与插件设置里的开关、命令面板的命令是同一个入口 */
+function toggleCollapse() {
+  cfg.collapsed = !cfg.collapsed;
+  if (root) {
+    root.classList.toggle('collapsed', cfg.collapsed);
+    var t = root.querySelector('.mzr-toggle');
+    if (t) {
+      t.setAttribute('title', cfg.collapsed ? '展开工具栏' : '收起工具栏（只留组名条）');
+      t.setAttribute('aria-label', cfg.collapsed ? '展开工具栏' : '收起工具栏');
+    }
+    lastW = -1;
+    applyFold(cfg.collapsed ? allFolded() : {});
+    fit(true);
+  }
+  try { ctx.settings.set({ collapsed: cfg.collapsed }); } catch (e) { /* ignore */ }
 }
 
 function cacheRefs() {
@@ -436,10 +468,7 @@ function onRootClick(e) {
   e.stopPropagation();
 
   if (t.dataset.toggle === 'collapse') {
-    cfg.collapsed = !cfg.collapsed;
-    root.classList.toggle('collapsed', cfg.collapsed);
-    ctx.settings.set({ collapsed: cfg.collapsed });
-    fit(true);
+    toggleCollapse();
     return;
   }
 
@@ -747,7 +776,7 @@ function fit(force) {
   /* 折叠态：固定单行、中等尺寸，超出的横向滚动（用户显式选择的紧凑态） */
   if (cfg.collapsed) {
     setTier('md');
-    applyFold({});
+    applyFold(allFolded());
     return;
   }
 
@@ -785,6 +814,11 @@ function fit(force) {
 function onResize() {
   lastW = -1;
   fit(true);
+}
+
+function onRootDbl(e) {
+  var t = e.target.closest ? e.target.closest('.mzr-label') : null;
+  if (t) { e.preventDefault(); toggleCollapse(); }
 }
 
 function onDocDown(e) {
@@ -840,6 +874,7 @@ module.exports = {
 
     root.addEventListener('click', onRootClick);
     root.addEventListener('mousedown', onRootDown);
+    root.addEventListener('dblclick', onRootDbl);
     applyScope();
     syncState();
 
@@ -849,6 +884,13 @@ module.exports = {
           cfg.density = s && s.density === 'compact' ? 'compact' : 'comfortable';
           if (root) root.classList.toggle('compact', cfg.density === 'compact');
           if (s && typeof s.hideNative === 'boolean') cfg.hideNative = s.hideNative;
+          var wantCollapsed = !!(s && s.collapsed);
+          if (root && wantCollapsed !== cfg.collapsed) {
+            cfg.collapsed = wantCollapsed;
+            root.classList.toggle('collapsed', cfg.collapsed);
+            applyFold(cfg.collapsed ? allFolded() : {});
+            lastW = -1;
+          }
           applyScope();
         });
       });
@@ -857,13 +899,8 @@ module.exports = {
     try {
       ctx.ui.command({
         id: 'toggle-collapse',
-        name: 'Ribbon：折叠 / 展开工具栏',
-        run: function () {
-          cfg.collapsed = !cfg.collapsed;
-          if (root) root.classList.toggle('collapsed', cfg.collapsed);
-          ctx.settings.set({ collapsed: cfg.collapsed });
-          fit(true);
-        }
+        name: 'Ribbon：收起 / 展开工具栏',
+        run: function () { toggleCollapse(); }
       });
       ctx.ui.command({
         id: 'toggle-native',
@@ -930,6 +967,7 @@ function cleanup() {
     try {
       root.removeEventListener('click', onRootClick);
       root.removeEventListener('mousedown', onRootDown);
+      root.removeEventListener('dblclick', onRootDbl);
     } catch (e) { /* ignore */ }
   }
   /* 兜底：连同历史遗留的重复实例一起清掉 */
