@@ -1,4 +1,4 @@
-/* morz-ribbon v0.1.4 — 把 Morz 单行格式工具栏重排为分组 Ribbon
+/* morz-ribbon v0.1.5 — 把 Morz 单行格式工具栏重排为分组 Ribbon
  * 功能范围与原生 .toolbar-top 的 25 个按钮一一对应，不新增、不删减。
  * 依赖公开 SDK：ctx.editor.runCommand / ctx.active / ctx.editor.view / ctx.vault.writeBlob
  */
@@ -29,6 +29,7 @@ var ICONS = {
   focus: 'M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
   fullscreen: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
   eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  hide: 'M3 3l18 18M10.6 6.2A9.9 9.9 0 0 1 12 6c6.5 0 10 6 10 6a17.6 17.6 0 0 1-3.1 3.6M6.6 7.7A17.4 17.4 0 0 0 2 12s3.5 7 10 7c1.5 0 2.9-.3 4.1-.9',
   chevron: 'M6 9l6 6 6-6',
   caret: 'M6 10l4 4 4-4',
   more: 'M6 5l5 7-5 7M13 5l5 7-5 7'
@@ -113,7 +114,7 @@ var EMOJIS = ['😀','😄','😊','🙂','😉','😍','🤔','😅','😮','�
 
 /* ---------------- 运行期状态 ---------------- */
 var ctx = null;
-var cfg = { collapsed: false, hideNative: false, density: 'comfortable' };
+var cfg = { collapsed: false, hideNative: false, density: 'comfortable', hidden: false };
 var root = null;
 var pop = null;
 var popOwner = null;
@@ -192,8 +193,10 @@ function applyScope() {
   if (!root) return;
   var md = isMdView();
   scopeState = md;
-  root.classList.toggle('is-off', !md);
-  if (!md) {
+  /* hidden = 用户主动完全隐藏：Ribbon 不出现在任何视图，原生格式栏同时归还 */
+  var show = md && !cfg.hidden;
+  root.classList.toggle('is-off', !show);
+  if (!show) {
     closePop();
     document.body.classList.remove('mzr-hide-native');
     return;
@@ -243,15 +246,16 @@ function buildCSS() {
   return [
     '.mzr-ribbon{box-sizing:border-box;position:sticky;top:0;z-index:30;display:flex;align-items:stretch;',
     '--bw:30px;--bh:28px;--rh:28px;--isz:16px;--fs:12px;--lfs:10px;',
-    /* 非 Markdown 视图：整体移出布局，不占高度、不碰原生栏 */
-    '.mzr-ribbon.is-off{display:none!important}',
-    'padding:5px 32px 0 8px;background:var(--ui-bg,var(--bg-color,#fff));',
+    'padding:5px 54px 0 8px;background:var(--ui-bg,var(--bg-color,#fff));',
     'border-bottom:1px solid var(--ui-border,rgba(128,128,128,.16));',
     /* 三道保险：宽度严格等于父容器、不参与 flex 撑宽、溢出直接裁掉。
        右侧面板展开时父容器收窄，Ribbon 必须同步收窄，绝不能画到面板上。 */
     'width:100%;max-width:100%;min-width:0;overflow:hidden;',
     'font-family:var(--ui-font,system-ui,sans-serif);user-select:none;-webkit-user-select:none;flex:0 0 auto}',
-    '.mzr-ribbon.compact{padding:3px 32px 0 4px}',
+    /* 非 Markdown 视图或被完全隐藏：整体移出布局，不占高度、不碰原生栏。
+       必须独立成条 —— 夹在上面的声明里会把整条 .mzr-ribbon 规则截断。 */
+    '.mzr-ribbon.is-off{display:none!important}',
+    '.mzr-ribbon.compact{padding:3px 54px 0 4px}',
     /* 内层不换行：宽度一律由 JS 通过「收按钮」解决，绝不让组掉行导致高度变化 */
     '.mzr-scroll{display:flex;flex-wrap:nowrap;align-items:flex-start;justify-content:flex-start;flex:1 1 auto;min-width:0;overflow:hidden}',
     '.mzr-ribbon.mzr-tight-scroll .mzr-scroll{overflow-x:auto;overflow-y:hidden}',
@@ -307,7 +311,7 @@ function buildCSS() {
 
     /* 收起态（Office 式折叠）：只留一条 28px 的组名条。
        每组压成一个 pill，点开即弹出本组全部功能；右侧箭头随时展开。 */
-    '.mzr-ribbon.collapsed{height:auto;padding:3px 34px 3px 6px}',
+    '.mzr-ribbon.collapsed{height:auto;padding:3px 54px 3px 6px}',
     '.mzr-ribbon.collapsed .mzr-scroll{overflow-x:auto;overflow-y:hidden;align-items:center}',
     '.mzr-ribbon.collapsed .mzr-scroll::-webkit-scrollbar{height:0;width:0}',
     '.mzr-ribbon.collapsed .mzr-label{display:none}',
@@ -317,14 +321,18 @@ function buildCSS() {
     '.mzr-ribbon.collapsed .mzr-fold{display:flex;width:auto;min-width:34px;height:22px;',
     'padding:0 7px;margin:0;font-size:11px;gap:3px;opacity:.9}',
 
-    /* 展开 / 收起按钮：常驻在右上（收起态）或右下（展开态），不再用几乎看不见的透明小三角 */
-    '.mzr-toggle{position:absolute;right:5px;bottom:3px;z-index:6;width:24px;height:18px;border:0;',
-    'border-radius:5px;display:flex;align-items:center;justify-content:center;',
-    'background:var(--ui-hover,rgba(128,128,128,.10));color:var(--ui-text,#333);opacity:.62;cursor:pointer;',
-    'transition:opacity .12s,background .12s}',
-    '.mzr-toggle:hover{opacity:1;background:var(--ui-active,rgba(128,128,128,.2))}',
-    '.mzr-ribbon.collapsed .mzr-toggle{bottom:auto;top:4px;opacity:.85}',
-    '.mzr-ribbon.collapsed .mzr-toggle svg{transform:rotate(180deg)}',
+    /* 右上角两个常驻按钮：收起 / 展开、完全隐藏。放在同一容器里，靠右贴齐 */
+    '.mzr-tgts{position:absolute;right:4px;bottom:3px;z-index:6;display:flex;gap:2px}',
+    '.mzr-toggle{box-sizing:border-box;width:23px;height:19px;padding:0;',
+    'border:1px solid var(--ui-border,rgba(128,128,128,.22));border-radius:5px;',
+    'display:flex;align-items:center;justify-content:center;',
+    'background:var(--ui-hover,rgba(128,128,128,.12));color:var(--ui-text,#333);opacity:.9;cursor:pointer;',
+    'transition:opacity .12s,background .12s,color .12s}',
+    '.mzr-toggle:hover{opacity:1;background:var(--ui-active,rgba(128,128,128,.22))}',
+    '.mzr-toggle:focus-visible{outline:1px solid var(--ui-accent,#4a7dff);outline-offset:1px}',
+    '.mzr-tgts .mzr-hide:hover{color:var(--ui-danger,#e5484d)}',
+    '.mzr-ribbon.collapsed .mzr-tgts{bottom:auto;top:4px}',
+    '.mzr-ribbon.collapsed .mzr-toggle[data-toggle="collapse"] svg{transform:rotate(180deg)}',
 
     /* 窄窗口不再换行/压扁：多余的按钮收进「更多」，高度保持不变 */
 
@@ -376,9 +384,13 @@ function buildHTML() {
     out.push('</div>');
   }
   out.push('</div>');
-  out.push('<button type="button" class="mzr-toggle" data-toggle="collapse" aria-label="' +
+  out.push('<div class="mzr-tgts">');
+  out.push('<button type="button" class="mzr-toggle mzr-fold-btn" data-toggle="collapse" aria-label="' +
     (cfg.collapsed ? '展开工具栏' : '收起工具栏') + '" title="' +
     (cfg.collapsed ? '展开工具栏' : '收起工具栏（只留组名条）') + '">' + svg('chevron', 11) + '</button>');
+  out.push('<button type="button" class="mzr-toggle mzr-hide" data-toggle="hide" aria-label="完全隐藏工具栏" ' +
+    'title="完全隐藏 Ribbon（回到原生格式栏，可从这里或命令面板恢复）">' + svg('hide', 13) + '</button>');
+  out.push('</div>');
   return out.join('');
 }
 
@@ -394,7 +406,7 @@ function toggleCollapse() {
   cfg.collapsed = !cfg.collapsed;
   if (root) {
     root.classList.toggle('collapsed', cfg.collapsed);
-    var t = root.querySelector('.mzr-toggle');
+    var t = root.querySelector('.mzr-fold-btn');
     if (t) {
       t.setAttribute('title', cfg.collapsed ? '展开工具栏' : '收起工具栏（只留组名条）');
       t.setAttribute('aria-label', cfg.collapsed ? '展开工具栏' : '收起工具栏');
@@ -404,6 +416,43 @@ function toggleCollapse() {
     fit(true);
   }
   try { ctx.settings.set({ collapsed: cfg.collapsed }); } catch (e) { /* ignore */ }
+}
+
+/* 完全隐藏：Ribbon 从任何视图消失，原生格式栏自动归还。
+   隐藏后页面里没有任何 Ribbon 痕迹，恢复入口只剩两处：
+   命令面板「Ribbon：显示 / 隐藏工具栏」、插件设置里的「完全隐藏 Ribbon」开关。 */
+function setHidden(v, quiet) {
+  var want = !!v;
+  if (want === cfg.hidden) return;
+  cfg.hidden = want;
+  if (cfg.hidden) {
+    closePop();
+    if (root) root.classList.add('is-off');
+    document.body.classList.remove('mzr-hide-native');
+  } else {
+    applyScope();
+  }
+  try { ctx.settings.set({ hidden: cfg.hidden }); } catch (e) { /* ignore */ }
+  if (!quiet) {
+    ctx.ui.notice(cfg.hidden
+      ? 'Ribbon 已完全隐藏，原生格式栏已恢复。恢复方式：双击编辑区顶部边缘 / 命令面板搜索「Ribbon」/ 插件设置开关'
+      : 'Ribbon 已恢复显示');
+  }
+}
+
+/* 完全隐藏后的逃生口：双击编辑区顶部 14px 边缘即可唤回（写在文字上方空白处，不占位）。
+   另外还有两条正路：命令面板「Ribbon：显示 / 隐藏工具栏」、插件设置里的开关。 */
+function onDocDbl(e) {
+  if (!cfg.hidden || !root) return;
+  var host = root.parentNode;
+  if (!host) return;
+  /* 只认「编辑列顶部一小条」：不依赖 target 归属（原生栏可能挂在宿主之外），
+     用横向落在编辑列内 + 纵向 24px 以内判定，正文首行不会被误触。 */
+  var r = host.getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX > r.right) return;
+  if (e.clientY > r.top + 24 || e.clientY < r.top - 48) return;
+  e.preventDefault();
+  setHidden(false);
 }
 
 function cacheRefs() {
@@ -469,6 +518,11 @@ function onRootClick(e) {
 
   if (t.dataset.toggle === 'collapse') {
     toggleCollapse();
+    return;
+  }
+
+  if (t.dataset.toggle === 'hide') {
+    setHidden(true);
     return;
   }
 
@@ -835,6 +889,7 @@ module.exports = {
     var saved = {};
     try { saved = (await ctx.settings.get()) || {}; } catch (e) { saved = {}; }
     cfg.collapsed = !!saved.collapsed;
+    cfg.hidden = !!saved.hidden;
     /* 默认隐藏原生格式栏，由本 Ribbon 接管；用户显式关掉才保留双栏。
        v0.1 存过 hideNative:false，靠 mv 标记做一次迁移，升级后重新回到自动隐藏。 */
     var MV = 2;
@@ -849,6 +904,7 @@ module.exports = {
     try {
       ctx.settings.defineSchema([
         { key: 'collapsed', label: '默认折叠（单行）', type: 'boolean' },
+        { key: 'hidden', label: '完全隐藏 Ribbon（改用原生格式栏）', type: 'boolean' },
         { key: 'hideNative', label: '隐藏原生格式栏（默认开启）', type: 'boolean' },
         { key: 'density', label: '密度', type: 'select', options: [['comfortable', '标准'], ['compact', '紧凑']] }
       ]);
@@ -891,6 +947,8 @@ module.exports = {
             applyFold(cfg.collapsed ? allFolded() : {});
             lastW = -1;
           }
+          /* 设置面板里勾掉「完全隐藏」即恢复；直接改值不回写，避免逐次回声 */
+          cfg.hidden = !!(s && s.hidden);
           applyScope();
         });
       });
@@ -901,6 +959,11 @@ module.exports = {
         id: 'toggle-collapse',
         name: 'Ribbon：收起 / 展开工具栏',
         run: function () { toggleCollapse(); }
+      });
+      ctx.ui.command({
+        id: 'toggle-hidden',
+        name: 'Ribbon：显示 / 隐藏工具栏',
+        run: function () { setHidden(!cfg.hidden); }
       });
       ctx.ui.command({
         id: 'toggle-native',
@@ -927,9 +990,11 @@ module.exports = {
     } catch (e) { /* ignore */ }
 
     document.addEventListener('mousedown', onDocDown);
+    document.addEventListener('dblclick', onDocDbl, true);
     ctx.onDispose(function () {
       closePop();
       document.removeEventListener('mousedown', onDocDown);
+      document.removeEventListener('dblclick', onDocDbl, true);
     });
 
     try {
