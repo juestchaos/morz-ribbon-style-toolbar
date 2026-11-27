@@ -83,6 +83,7 @@ Morz 编辑器的 Ribbon 风格格式工具栏插件。
 | 仓库 | https://github.com/juestchaos/morz-ribbon-style-toolbar |
 | 插件 id | `morz-ribbon` |
 | 版本 / tag | `0.1.5` / `v0.1.5` |
+| Release | https://github.com/juestchaos/morz-ribbon-style-toolbar/releases/tag/v0.1.5 |
 | 最低客户端 | `0.3.0`（实测 0.3.4） |
 | 入口 | `main.js`，导出 `activate` / `deactivate` |
 | 许可 | MIT |
