@@ -174,6 +174,13 @@ function isMdView() {
 
   var live = editorLive();
   if (live === false) return false;
+  if (live === null) {
+    /* SDK 拿不到视图本体时，退到 DOM 层再看一眼：插件视图会卸载编辑器或把它藏起来 */
+    var el = document.querySelector('.cm-editor');
+    if (!el) return false;
+    var rr = el.getBoundingClientRect();
+    if (!(rr.width > 2 && rr.height > 2)) return false;
+  }
 
   var p = null;
   try { p = ctx.active.path(); } catch (e) { p = null; }
